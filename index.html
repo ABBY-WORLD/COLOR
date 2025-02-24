@@ -61,14 +61,16 @@ canvas.addEventListener('mouseup', () => {
 
 canvas.addEventListener('mousemove', e => {
     if (!painting || currentMix.length === 0) return;
-    
+
     const pixel = ctx.getImageData(e.clientX, e.clientY, 1, 1).data;
     let existingRGB = [pixel[0], pixel[1], pixel[2]];
-    
+
     let mixedColor = getMixedColor(existingRGB, currentMix);
-    
-    ctx.fillStyle = `rgb(${mixedColor.join(',')})`;
-    ctx.fillRect(e.clientX - 15, e.clientY - 15, 30, 30);
+
+    ctx.fillStyle = `rgba(${mixedColor.join(',')},0.8)`;
+    ctx.beginPath();
+    ctx.arc(e.clientX, e.clientY, 30, 0, Math.PI * 2);
+    ctx.fill();
 });
 
 function getMixedColor(baseColor, mixArray) {
@@ -78,11 +80,11 @@ function getMixedColor(baseColor, mixArray) {
         (baseColor[1] + mixArray.reduce((sum, color) => sum + color[1], 0)) / totalWeight,
         (baseColor[2] + mixArray.reduce((sum, color) => sum + color[2], 0)) / totalWeight
     ];
-    
+
     let blueAmount = mixArray.filter(c => c[2] > c[0] && c[2] > c[1]).length;
     let warmAmount = mixArray.filter(c => c[0] > c[2] || c[1] > c[2]).length;
     let brightnessAdjustment = warmAmount * 10 - blueAmount * 15;
-    
+
     blended = blended.map(v => Math.max(0, Math.min(255, v + brightnessAdjustment)));
     return blended.map(v => Math.floor(v));
 }
