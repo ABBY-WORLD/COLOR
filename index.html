@@ -49,7 +49,7 @@ canvas.addEventListener('mousedown', e => {
         const dx = e.clientX - pile.x;
         const dy = e.clientY - pile.y;
         if (dx * dx + dy * dy <= 30 * 30) {
-            currentMix.push(pile.color);
+            currentMix.push(colors[pile.color]);
         }
     });
     painting = true;
@@ -61,65 +61,30 @@ canvas.addEventListener('mouseup', () => {
 
 canvas.addEventListener('mousemove', e => {
     if (!painting || currentMix.length === 0) return;
-
+    
     const pixel = ctx.getImageData(e.clientX, e.clientY, 1, 1).data;
     let existingRGB = [pixel[0], pixel[1], pixel[2]];
-
+    
     let mixedColor = getMixedColor(existingRGB, currentMix);
-
-    ctx.fillStyle = `rgba(${mixedColor.join(',')},0.8)`;
-    ctx.beginPath();
-    ctx.arc(e.clientX, e.clientY, 20, 0, Math.PI * 2);
-    ctx.fill();
+    
+    ctx.fillStyle = `rgb(${mixedColor.join(',')})`;
+    ctx.fillRect(e.clientX - 15, e.clientY - 15, 30, 30);
 });
 
 function getMixedColor(baseColor, mixArray) {
-    const rybMixMap = {
-        'red-yellow': [255, 165, 0],
-        'yellow-blue': [50, 205, 50],
-        'red-blue': [128, 0, 128],
-        'red-white': [255, 128, 128],
-        'yellow-white': [255, 255, 180],
-        'blue-white': [128, 128, 255],
-        'red-yellow-blue': [120, 80, 40]
-    };
-
-    let blended = [...baseColor];
-    mixArray.forEach(colorKey => {
-        const baseKey = identifyClosestColor(blended);
-        let key = [baseKey, colorKey].sort().join('-');
-
-        let mixedColor = rybMixMap[key];
-        if (mixedColor) {
-            blended = mixedColor;
-        } else {
-            blended = [
-                (blended[0] + colors[colorKey][0]) / 2,
-                (blended[1] + colors[colorKey][1]) / 2,
-                (blended[2] + colors[colorKey][2]) / 2
-            ];
-        }
-    });
-
+    let totalWeight = mixArray.length + 1;
+    let blended = [
+        (baseColor[0] + mixArray.reduce((sum, color) => sum + color[0], 0)) / totalWeight,
+        (baseColor[1] + mixArray.reduce((sum, color) => sum + color[1], 0)) / totalWeight,
+        (baseColor[2] + mixArray.reduce((sum, color) => sum + color[2], 0)) / totalWeight
+    ];
+    
+    let blueAmount = mixArray.filter(c => c[2] > c[0] && c[2] > c[1]).length;
+    let warmAmount = mixArray.filter(c => c[0] > c[2] || c[1] > c[2]).length;
+    let brightnessAdjustment = warmAmount * 10 - blueAmount * 15;
+    
+    blended = blended.map(v => Math.max(0, Math.min(255, v + brightnessAdjustment)));
     return blended.map(v => Math.floor(v));
-}
-
-function identifyClosestColor(rgb) {
-    let closest = null;
-    let closestDistance = Infinity;
-    for (let key in colors) {
-        let color = colors[key];
-        let distance = Math.sqrt(
-            (rgb[0] - color[0]) ** 2 +
-            (rgb[1] - color[1]) ** 2 +
-            (rgb[2] - color[2]) ** 2
-        );
-        if (distance < closestDistance) {
-            closestDistance = distance;
-            closest = key;
-        }
-    }
-    return closest;
 }
 
 window.addEventListener('resize', () => {
