@@ -11,7 +11,7 @@
       padding: 0;
       background: #f5f5f5;
     }
-    /* Ingen rubrik, så vi tar bort eventuella h1-stilar */
+    /* Inget rubrik-element */
 
     #controls {
       margin: 10px auto;
@@ -25,7 +25,7 @@
       border-radius: 5px;
     }
 
-    /* Gör färgknapparna till kvadrater utan text */
+    /* Färgknapparna visas som kvadrater utan text */
     .color-btn {
       width: 40px;
       height: 40px;
@@ -58,16 +58,14 @@
   </style>
 </head>
 <body>
-  <!-- Ingen rubrik -->
-  
   <div id="controls">
-    <!-- Tomma knappar för färgerna -->
+    <!-- Färgknappar (endast färgad ruta) -->
     <button class="color-btn" data-color="#FF0000"></button>
     <button class="color-btn" data-color="#FFFF00"></button>
     <button class="color-btn" data-color="#0000FF"></button>
     <button class="color-btn" data-color="#FFFFFF"></button>
 
-    <!-- Omdöpt knapp -->
+    <!-- Omdöpt knapp för att rengöra penseln -->
     <button id="clean-brush">clean brush</button>
   </div>
 
@@ -80,17 +78,22 @@
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     
-    // Fyll canvas med grå bakgrund (redan satt i CSS, men om du vill rensa manuellt):
+    // Fyll canvas med grå bakgrund (om du vill rensa manuellt):
     ctx.fillStyle = "#CCCCCC";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // Variabler för pensel
-    let selectedColor = "#FF0000"; // Standardpigment (Röd)
+
+    // Penselns egenskaper
+    let selectedColor = "#FF0000"; // Förvald färg
     let brushColor = selectedColor; // Penselns aktuella färg
-    const brushRadius = 20;
+    const brushRadius = 20;        // Radie i pixlar
     let isDrawing = false;
-    
-    // Fånga mus-/pekhändelser
+
+    // Hur starkt penseln blandar in sin färg (max alpha i mitten)
+    const maxAlpha = 0.8;  // 0.8 = 80% penselfärg, 20% befintlig färg i mitten
+    // Hur mycket penseln tar upp av den färg som redan finns
+    const brushPickup = 0.3; // 30% av befintlig pixel blandas in i penseln
+
+    // Eventhantering för musen
     canvas.addEventListener("mousedown", (e) => {
       isDrawing = true;
       draw(e);
@@ -105,31 +108,35 @@
       isDrawing = false;
     });
     
-    // Hantera färgknappar
+    // Färgknappar
     document.querySelectorAll(".color-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         selectedColor = btn.getAttribute("data-color");
-        brushColor = selectedColor; // När en färg väljs, nollställ penseln till pigmentet
+        brushColor = selectedColor; // När en färg väljs, nollställ penseln till denna färg
       });
     });
     
-    // Rengör penseln - återställ till valt pigment
+    // "clean brush" - nollställ penseln till senast valda färg
     document.getElementById("clean-brush").addEventListener("click", () => {
       brushColor = selectedColor;
     });
     
-    // Funktion för att blanda två färger i LAB-utrymme med viktning
-    function mixColors(existingHex, brushHex, weight) {
-      // weight = 0 ger enbart befintlig färg, 1 ger enbart penselns färg
-      let labExisting = chroma(existingHex).lab();
-      let labBrush = chroma(brushHex).lab();
-      let L = labExisting[0] * (1 - weight) + labBrush[0] * weight;
-      let a = labExisting[1] * (1 - weight) + labBrush[1] * weight;
-      let b = labExisting[2] * (1 - weight) + labBrush[2] * weight;
-      return chroma.lab(L, a, b).hex();
+    /**
+     * alphaMixColors
+     * Blandar två färger i sRGB med en viss alpha (0..1).
+     * alpha = 1 → enbart penselns färg
+     * alpha = 0 → enbart befintlig färg
+     */
+    function alphaMixColors(existingHex, brushHex, alpha) {
+      const [r1, g1, b1] = chroma(existingHex).rgb();
+      const [r2, g2, b2] = chroma(brushHex).rgb();
+      const r = r1 * (1 - alpha) + r2 * alpha;
+      const g = g1 * (1 - alpha) + g2 * alpha;
+      const b = b1 * (1 - alpha) + b2 * alpha;
+      return chroma(r, g, b).hex();
     }
-    
-    // Funktion för att hämta canvasens position utifrån muskoordinater
+
+    // Hämta canvasens (x, y) från muskoordinater
     function getCanvasPos(e) {
       const rect = canvas.getBoundingClientRect();
       return {
@@ -138,9 +145,10 @@
       };
     }
     
-    // Funktion för att applicera penseldrag vid en given position
+    // Rita på canvasen
     function draw(e) {
       const pos = getCanvasPos(e);
+      
       // Hämta en ruta runt penselns position
       const xStart = Math.max(0, Math.floor(pos.x - brushRadius));
       const yStart = Math.max(0, Math.floor(pos.y - brushRadius));
@@ -152,42 +160,48 @@
       let imageData = ctx.getImageData(xStart, yStart, width, height);
       let data = imageData.data;
       
-      // Loop igenom alla pixlar i den hämtade rutan
+      // Gå igenom alla pixlar i den hämtade rutan
       for (let j = 0; j < height; j++) {
         for (let i = 0; i < width; i++) {
-          // Beräkna pixelns position relativt penselns mitt
-          const dx = i + xStart - pos.x;
-          const dy = j + yStart - pos.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
+          const dx = (i + xStart) - pos.x;
+          const dy = (j + yStart) - pos.y;
+          const distance = Math.sqrt(dx*dx + dy*dy);
+          
+          // Om pixeln ligger inom penselns radie
           if (distance <= brushRadius) {
-            // Beräkna intensitet baserat på avståndet (ju närmare mitten, desto starkare)
-            let intensity = 1 - (distance / brushRadius);
-            // Index för pixeln i imageData (RGBA)
+            // Beräkna alpha baserat på hur nära mitten man är
+            // Exempel: 0.8 i mitten, 0 i ytterkant
+            let alpha = maxAlpha * (1 - distance / brushRadius);
+            if (alpha < 0) alpha = 0;
+            if (alpha > 1) alpha = 1; // För säkerhets skull
+            
+            // Pixelindex (RGBA)
             const index = (j * width + i) * 4;
-            // Hämta befintlig färg i hex-format
-            let r = data[index], g = data[index + 1], b = data[index + 2];
+            // Hämta befintlig färg
+            let r = data[index], g = data[index+1], b = data[index+2];
             let existingHex = chroma(r, g, b).hex();
-            // Blanda befintlig färg med penselns färg
-            let newHex = mixColors(existingHex, brushColor, intensity);
-            // Konvertera tillbaka till RGB
-            let newRGB = chroma(newHex).rgb();
-            data[index] = newRGB[0];
-            data[index + 1] = newRGB[1];
-            data[index + 2] = newRGB[2];
-            // Sätt alpha till fullt (255)
-            data[index + 3] = 255;
+
+            // Blanda befintlig färg med penselns färg via alpha
+            let newHex = alphaMixColors(existingHex, brushColor, alpha);
+            let [nr, ng, nb] = chroma(newHex).rgb();
+
+            // Skriv in nya färgen i bilddata
+            data[index]   = nr;
+            data[index+1] = ng;
+            data[index+2] = nb;
+            data[index+3] = 255; // fullt synlig
           }
         }
       }
-      
-      // Skriv tillbaka uppdaterad bilddata till canvasen
+
+      // Skriv tillbaka den uppdaterade rutan till canvasen
       ctx.putImageData(imageData, xStart, yStart);
-      
-      // Uppdatera penselns färg baserat på pixeln i centrum (lite “uppsugning” av färg)
-      let centerData = ctx.getImageData(pos.x, pos.y, 1, 1).data;
-      let centerHex = chroma(centerData[0], centerData[1], centerData[2]).hex();
-      // Blandar lite av den centrala pixeln med den nuvarande penselfärgen
-      brushColor = mixColors(brushColor, centerHex, 0.1);
+
+      // Låt penseln "ta upp" en del av färgen i mitten (0,0 i penselns radie)
+      let centerPixel = ctx.getImageData(pos.x, pos.y, 1, 1).data;
+      let centerHex = chroma(centerPixel[0], centerPixel[1], centerPixel[2]).hex();
+      // Blanda penselns färg med mittenfärgen för att simulera “upptag”
+      brushColor = alphaMixColors(brushColor, centerHex, brushPickup);
     }
   </script>
 </body>
