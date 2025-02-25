@@ -11,7 +11,6 @@
       padding: 0;
       background: #f5f5f5;
     }
-    /* Inget rubrik-element */
 
     #controls {
       margin: 10px auto;
@@ -78,20 +77,18 @@
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     
-    // Fyll canvas med grå bakgrund (om du vill rensa manuellt):
+    // Fyll canvas med grå bakgrund
     ctx.fillStyle = "#CCCCCC";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Penselns egenskaper
-    let selectedColor = "#FF0000"; // Förvald färg
+    let selectedColor = "#FF0000";  // Förvald färg (från paletten)
     let brushColor = selectedColor; // Penselns aktuella färg
-    const brushRadius = 20;        // Radie i pixlar
+    const brushRadius = 20;         // Radie i pixlar
     let isDrawing = false;
 
-    // Hur starkt penseln blandar in sin färg (max alpha i mitten)
-    const maxAlpha = 0.8;  // 0.8 = 80% penselfärg, 20% befintlig färg i mitten
-    // Hur mycket penseln tar upp av den färg som redan finns
-    const brushPickup = 0.3; // 30% av befintlig pixel blandas in i penseln
+    // Hur mycket penseln plockar upp av befintlig färg (0..1)
+    const brushPickup = 0.3;
 
     // Eventhantering för musen
     canvas.addEventListener("mousedown", (e) => {
@@ -112,7 +109,7 @@
     document.querySelectorAll(".color-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         selectedColor = btn.getAttribute("data-color");
-        brushColor = selectedColor; // När en färg väljs, nollställ penseln till denna färg
+        brushColor = selectedColor; // När en färg väljs, sätt penseln till den färgen
       });
     });
     
@@ -120,20 +117,32 @@
     document.getElementById("clean-brush").addEventListener("click", () => {
       brushColor = selectedColor;
     });
-    
+
     /**
-     * alphaMixColors
-     * Blandar två färger i sRGB med en viss alpha (0..1).
-     * alpha = 1 → enbart penselns färg
-     * alpha = 0 → enbart befintlig färg
+     * mixLabColors(colorA, colorB, ratio)
+     * Blandar två hex-färger i LAB-utrymme.
+     * ratio = 0.5 → 50% av varje färg.
      */
-    function alphaMixColors(existingHex, brushHex, alpha) {
-      const [r1, g1, b1] = chroma(existingHex).rgb();
-      const [r2, g2, b2] = chroma(brushHex).rgb();
-      const r = r1 * (1 - alpha) + r2 * alpha;
-      const g = g1 * (1 - alpha) + g2 * alpha;
-      const b = b1 * (1 - alpha) + b2 * alpha;
-      return chroma(r, g, b).hex();
+    function mixLabColors(colorA, colorB, ratio=0.5) {
+      let labA = chroma(colorA).lab();
+      let labB = chroma(colorB).lab();
+      let L = labA[0] * (1 - ratio) + labB[0] * ratio;
+      let a = labA[1] * (1 - ratio) + labB[1] * ratio;
+      let b = labA[2] * (1 - ratio) + labB[2] * ratio;
+      return chroma.lab(L, a, b).hex();
+    }
+
+    /**
+     * Hjälpfunktion för att kolla om en pixel är "grå bakgrund".
+     * Justeras via en tröskel om man vill hantera ljusare/mörkare gråtoner.
+     */
+    function isGrey(r, g, b) {
+      // Gråbakgrund = #CCC = (204, 204, 204)
+      // Vi använder en tolerans på t.ex. 10
+      const threshold = 10;
+      return (Math.abs(r - 204) < threshold &&
+              Math.abs(g - 204) < threshold &&
+              Math.abs(b - 204) < threshold);
     }
 
     // Hämta canvasens (x, y) från muskoordinater
@@ -160,48 +169,46 @@
       let imageData = ctx.getImageData(xStart, yStart, width, height);
       let data = imageData.data;
       
-      // Gå igenom alla pixlar i den hämtade rutan
       for (let j = 0; j < height; j++) {
         for (let i = 0; i < width; i++) {
           const dx = (i + xStart) - pos.x;
           const dy = (j + yStart) - pos.y;
           const distance = Math.sqrt(dx*dx + dy*dy);
-          
-          // Om pixeln ligger inom penselns radie
+
+          // Endast om pixeln ligger inom penselns radie
           if (distance <= brushRadius) {
-            // Beräkna alpha baserat på hur nära mitten man är
-            // Exempel: 0.8 i mitten, 0 i ytterkant
-            let alpha = maxAlpha * (1 - distance / brushRadius);
-            if (alpha < 0) alpha = 0;
-            if (alpha > 1) alpha = 1; // För säkerhets skull
-            
             // Pixelindex (RGBA)
             const index = (j * width + i) * 4;
-            // Hämta befintlig färg
             let r = data[index], g = data[index+1], b = data[index+2];
             let existingHex = chroma(r, g, b).hex();
 
-            // Blanda befintlig färg med penselns färg via alpha
-            let newHex = alphaMixColors(existingHex, brushColor, alpha);
-            let [nr, ng, nb] = chroma(newHex).rgb();
+            let newHex;
 
-            // Skriv in nya färgen i bilddata
+            // Om det är grå bakgrund → använd ren penselfärg
+            // Annars → blanda penselns färg med befintlig färg i LAB
+            if (isGrey(r, g, b)) {
+              newHex = brushColor;
+            } else {
+              // T ex 50% blandning (justera efter behov)
+              newHex = mixLabColors(existingHex, brushColor, 0.5);
+            }
+
+            // Skriv in nya färgen
+            let [nr, ng, nb] = chroma(newHex).rgb();
             data[index]   = nr;
             data[index+1] = ng;
             data[index+2] = nb;
-            data[index+3] = 255; // fullt synlig
+            data[index+3] = 255;
+
+            // Penseln tar upp en del av färgen (så att den ändras över tid)
+            // Mixa t.ex. 30% av pixelns färg in i penseln
+            brushColor = mixLabColors(brushColor, newHex, brushPickup);
           }
         }
       }
 
       // Skriv tillbaka den uppdaterade rutan till canvasen
       ctx.putImageData(imageData, xStart, yStart);
-
-      // Låt penseln "ta upp" en del av färgen i mitten (0,0 i penselns radie)
-      let centerPixel = ctx.getImageData(pos.x, pos.y, 1, 1).data;
-      let centerHex = chroma(centerPixel[0], centerPixel[1], centerPixel[2]).hex();
-      // Blanda penselns färg med mittenfärgen för att simulera “upptag”
-      brushColor = alphaMixColors(brushColor, centerHex, brushPickup);
     }
   </script>
 </body>
