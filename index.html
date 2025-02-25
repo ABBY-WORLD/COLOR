@@ -2,7 +2,7 @@
 <html lang="sv">
 <head>
   <meta charset="UTF-8">
-  <title>Oljefärg Simulator</title>
+  <title>Oljefärg Simulator (RYB-komplement)</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -11,45 +11,40 @@
       padding: 0;
       background: #f5f5f5;
     }
-
     #controls {
       margin: 10px auto;
       padding: 10px;
     }
-
     .color-btn, #clean-brush {
       margin: 5px;
       cursor: pointer;
       border: none;
       border-radius: 5px;
     }
-
-    /* Färgknapparna visas som kvadrater utan text */
+    /* Färgknappar visas som kvadrater utan text */
     .color-btn {
       width: 40px;
       height: 40px;
     }
-
-    /* Färginställningar för knapparna */
+    /* Röd, Gul, Mörkblå (Ultramarin), Vit */
     .color-btn[data-color="#FF0000"] { background: #FF0000; }
     .color-btn[data-color="#FFFF00"] { background: #FFFF00; }
-    .color-btn[data-color="#0000FF"] { background: #0000FF; }
+    .color-btn[data-color="#120A8F"] { background: #120A8F; }
     .color-btn[data-color="#FFFFFF"] {
       background: #FFFFFF;
       border: 1px solid #ccc;
     }
-
-    /* Knappen för att rengöra penseln */
+    /* clean brush-knappen */
     #clean-brush {
       background: #333;
       color: #fff;
       padding: 10px 15px;
       font-size: 16px;
     }
-
+    /* Mörkare bakgrundsfärg på canvasen */
     #canvas {
       border: 1px solid #ccc;
-      background: #ccc; /* Grå bakgrund */
+      background: #888888;
       cursor: crosshair;
       display: block;
       margin: 0 auto 20px auto;
@@ -58,13 +53,10 @@
 </head>
 <body>
   <div id="controls">
-    <!-- Färgknappar (endast färgad ruta) -->
     <button class="color-btn" data-color="#FF0000"></button>
     <button class="color-btn" data-color="#FFFF00"></button>
-    <button class="color-btn" data-color="#0000FF"></button>
+    <button class="color-btn" data-color="#120A8F"></button>
     <button class="color-btn" data-color="#FFFFFF"></button>
-
-    <!-- Omdöpt knapp för att rengöra penseln -->
     <button id="clean-brush">clean brush</button>
   </div>
 
@@ -73,143 +65,34 @@
   <!-- Inkludera chroma.js för färgkonverteringar -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chroma-js/2.1.0/chroma.min.js"></script>
   <script>
-    // Hämta canvas och kontext
+    /************************************************************
+     * 1) Grundinställningar
+     ************************************************************/
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
-    
-    // Fyll canvas med grå bakgrund
-    ctx.fillStyle = "#CCCCCC";
+
+    // Bakgrund
+    const backgroundColor = "#888888";
+    ctx.fillStyle = backgroundColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Penselns egenskaper
-    let selectedColor = "#FF0000";  // Förvald färg (från paletten)
+    // Pensel-egenskaper
+    let selectedColor = "#FF0000";  // Förvald färg
     let brushColor = selectedColor; // Penselns aktuella färg
-    const brushRadius = 20;         // Radie i pixlar
-    let isDrawing = false;
+    const brushRadius = 20;         // Radie på penseln
+    let isDrawing = false;          // Om vi håller nere musknappen
+    const brushPickup = 0.3;        // Hur mycket penseln plockar upp av färgen den målar över
+    const maxWeight = 0.8;          // Hur mycket penselfärg som max blandas i mitten av penseln
 
-    // Hur mycket penseln plockar upp av befintlig färg (0..1)
-    const brushPickup = 0.3;
-
-    // Eventhantering för musen
-    canvas.addEventListener("mousedown", (e) => {
-      isDrawing = true;
-      draw(e);
-    });
-    canvas.addEventListener("mousemove", (e) => {
-      if(isDrawing) draw(e);
-    });
-    canvas.addEventListener("mouseup", () => {
-      isDrawing = false;
-    });
-    canvas.addEventListener("mouseleave", () => {
-      isDrawing = false;
-    });
-    
-    // Färgknappar
-    document.querySelectorAll(".color-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        selectedColor = btn.getAttribute("data-color");
-        brushColor = selectedColor; // När en färg väljs, sätt penseln till den färgen
-      });
-    });
-    
-    // "clean brush" - nollställ penseln till senast valda färg
-    document.getElementById("clean-brush").addEventListener("click", () => {
-      brushColor = selectedColor;
-    });
-
+    /************************************************************
+     * 2) Hjälpfunktioner för att klassificera färg i RYB-hjulet
+     ************************************************************/
     /**
-     * mixLabColors(colorA, colorB, ratio)
-     * Blandar två hex-färger i LAB-utrymme.
-     * ratio = 0.5 → 50% av varje färg.
+     * getRybCategory(hue)
+     * Tar en HSL-hue (0..360) och approximerar den till en av
+     * sex huvudkategorier: red, orange, yellow, green, blue, purple
+     * (enligt RYB-liknande positioner).
      */
-    function mixLabColors(colorA, colorB, ratio=0.5) {
-      let labA = chroma(colorA).lab();
-      let labB = chroma(colorB).lab();
-      let L = labA[0] * (1 - ratio) + labB[0] * ratio;
-      let a = labA[1] * (1 - ratio) + labB[1] * ratio;
-      let b = labA[2] * (1 - ratio) + labB[2] * ratio;
-      return chroma.lab(L, a, b).hex();
-    }
-
-    /**
-     * Hjälpfunktion för att kolla om en pixel är "grå bakgrund".
-     * Justeras via en tröskel om man vill hantera ljusare/mörkare gråtoner.
-     */
-    function isGrey(r, g, b) {
-      // Gråbakgrund = #CCC = (204, 204, 204)
-      // Vi använder en tolerans på t.ex. 10
-      const threshold = 10;
-      return (Math.abs(r - 204) < threshold &&
-              Math.abs(g - 204) < threshold &&
-              Math.abs(b - 204) < threshold);
-    }
-
-    // Hämta canvasens (x, y) från muskoordinater
-    function getCanvasPos(e) {
-      const rect = canvas.getBoundingClientRect();
-      return {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      };
-    }
-    
-    // Rita på canvasen
-    function draw(e) {
-      const pos = getCanvasPos(e);
-      
-      // Hämta en ruta runt penselns position
-      const xStart = Math.max(0, Math.floor(pos.x - brushRadius));
-      const yStart = Math.max(0, Math.floor(pos.y - brushRadius));
-      const xEnd = Math.min(canvas.width, Math.ceil(pos.x + brushRadius));
-      const yEnd = Math.min(canvas.height, Math.ceil(pos.y + brushRadius));
-      const width = xEnd - xStart;
-      const height = yEnd - yStart;
-      
-      let imageData = ctx.getImageData(xStart, yStart, width, height);
-      let data = imageData.data;
-      
-      for (let j = 0; j < height; j++) {
-        for (let i = 0; i < width; i++) {
-          const dx = (i + xStart) - pos.x;
-          const dy = (j + yStart) - pos.y;
-          const distance = Math.sqrt(dx*dx + dy*dy);
-
-          // Endast om pixeln ligger inom penselns radie
-          if (distance <= brushRadius) {
-            // Pixelindex (RGBA)
-            const index = (j * width + i) * 4;
-            let r = data[index], g = data[index+1], b = data[index+2];
-            let existingHex = chroma(r, g, b).hex();
-
-            let newHex;
-
-            // Om det är grå bakgrund → använd ren penselfärg
-            // Annars → blanda penselns färg med befintlig färg i LAB
-            if (isGrey(r, g, b)) {
-              newHex = brushColor;
-            } else {
-              // T ex 50% blandning (justera efter behov)
-              newHex = mixLabColors(existingHex, brushColor, 0.5);
-            }
-
-            // Skriv in nya färgen
-            let [nr, ng, nb] = chroma(newHex).rgb();
-            data[index]   = nr;
-            data[index+1] = ng;
-            data[index+2] = nb;
-            data[index+3] = 255;
-
-            // Penseln tar upp en del av färgen (så att den ändras över tid)
-            // Mixa t.ex. 30% av pixelns färg in i penseln
-            brushColor = mixLabColors(brushColor, newHex, brushPickup);
-          }
-        }
-      }
-
-      // Skriv tillbaka den uppdaterade rutan till canvasen
-      ctx.putImageData(imageData, xStart, yStart);
-    }
-  </script>
-</body>
-</html>
+    function getRybCategory(hue) {
+      // Närmaste mittpunkter i hue för RYB:
+      // red=0°, orange=30°, yellow
