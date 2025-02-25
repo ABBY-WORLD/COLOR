@@ -11,49 +11,66 @@
       padding: 0;
       background: #f5f5f5;
     }
-    h1 {
-      margin-top: 20px;
-    }
+    /* Ingen rubrik, så vi tar bort eventuella h1-stilar */
+
     #controls {
       margin: 10px auto;
       padding: 10px;
     }
+
     .color-btn, #clean-brush {
-      padding: 10px 15px;
       margin: 5px;
-      font-size: 16px;
       cursor: pointer;
       border: none;
       border-radius: 5px;
     }
+
+    /* Gör färgknapparna till kvadrater utan text */
     .color-btn {
-      width: 80px;
-      color: #fff;
+      width: 40px;
+      height: 40px;
     }
+
+    /* Färginställningar för knapparna */
     .color-btn[data-color="#FF0000"] { background: #FF0000; }
-    .color-btn[data-color="#FFFF00"] { background: #FFFF00; color: #000; }
+    .color-btn[data-color="#FFFF00"] { background: #FFFF00; }
     .color-btn[data-color="#0000FF"] { background: #0000FF; }
-    .color-btn[data-color="#FFFFFF"] { background: #FFFFFF; color: #000; border: 1px solid #ccc; }
+    .color-btn[data-color="#FFFFFF"] {
+      background: #FFFFFF;
+      border: 1px solid #ccc;
+    }
+
+    /* Knappen för att rengöra penseln */
     #clean-brush {
       background: #333;
       color: #fff;
+      padding: 10px 15px;
+      font-size: 16px;
     }
+
     #canvas {
       border: 1px solid #ccc;
-      background: #fff;
+      background: #ccc; /* Grå bakgrund */
       cursor: crosshair;
+      display: block;
+      margin: 0 auto 20px auto;
     }
   </style>
 </head>
 <body>
-  <h1>Oljefärg Simulator</h1>
+  <!-- Ingen rubrik -->
+  
   <div id="controls">
-    <button class="color-btn" data-color="#FF0000">Röd</button>
-    <button class="color-btn" data-color="#FFFF00">Gul</button>
-    <button class="color-btn" data-color="#0000FF">Blå</button>
-    <button class="color-btn" data-color="#FFFFFF">Vit</button>
-    <button id="clean-brush">Rengör pensel</button>
+    <!-- Tomma knappar för färgerna -->
+    <button class="color-btn" data-color="#FF0000"></button>
+    <button class="color-btn" data-color="#FFFF00"></button>
+    <button class="color-btn" data-color="#0000FF"></button>
+    <button class="color-btn" data-color="#FFFFFF"></button>
+
+    <!-- Omdöpt knapp -->
+    <button id="clean-brush">clean brush</button>
   </div>
+
   <canvas id="canvas" width="800" height="600"></canvas>
 
   <!-- Inkludera chroma.js för färgkonverteringar -->
@@ -63,8 +80,8 @@
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     
-    // Fyll canvas med vit bakgrund
-    ctx.fillStyle = "#FFFFFF";
+    // Fyll canvas med grå bakgrund (redan satt i CSS, men om du vill rensa manuellt):
+    ctx.fillStyle = "#CCCCCC";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     // Variabler för pensel
