@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <title>Oljefärg Simulator (RYB-komplement)</title>
   <style>
+    /* Grundläggande styling */
     body {
       font-family: Arial, sans-serif;
       text-align: center;
@@ -41,7 +42,7 @@
       padding: 10px 15px;
       font-size: 16px;
     }
-    /* Mörkare bakgrundsfärg på canvasen */
+    /* Canvas med mörkgrå bakgrund */
     #canvas {
       border: 1px solid #ccc;
       background: #888888;
@@ -77,22 +78,187 @@
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Pensel-egenskaper
-    let selectedColor = "#FF0000";  // Förvald färg
+    let selectedColor = "#FF0000";  // Förvald färg (röd)
     let brushColor = selectedColor; // Penselns aktuella färg
     const brushRadius = 20;         // Radie på penseln
     let isDrawing = false;          // Om vi håller nere musknappen
-    const brushPickup = 0.3;        // Hur mycket penseln plockar upp av färgen den målar över
+    const brushPickup = 0.3;        // Hur mycket penseln tar upp av färgen den målar över
     const maxWeight = 0.8;          // Hur mycket penselfärg som max blandas i mitten av penseln
 
     /************************************************************
-     * 2) Hjälpfunktioner för att klassificera färg i RYB-hjulet
+     * 2) Hjälpfunktioner för RYB-komplement & bakgrund
      ************************************************************/
-    /**
-     * getRybCategory(hue)
-     * Tar en HSL-hue (0..360) och approximerar den till en av
-     * sex huvudkategorier: red, orange, yellow, green, blue, purple
-     * (enligt RYB-liknande positioner).
-     */
+    // Klassar färgerna till RYB-kategorier (röd, orange, gul, grön, blå, lila)
     function getRybCategory(hue) {
-      // Närmaste mittpunkter i hue för RYB:
-      // red=0°, orange=30°, yellow
+      // Mittpunkter i hue för RYB: 
+      // röd=0°, orange=30°, gul=60°, grön=120°, blå=240°, lila=300°
+      const categories = [
+        { name: "red",    center: 0   },
+        { name: "orange", center: 30  },
+        { name: "yellow", center: 60  },
+        { name: "green",  center: 120 },
+        { name: "blue",   center: 240 },
+        { name: "purple", center: 300 }
+      ];
+      let bestDiff = 999;
+      let bestName = "red";
+      for (let cat of categories) {
+        let diff = Math.abs(hue - cat.center);
+        if (diff > 180) diff = 360 - diff;
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestName = cat.name;
+        }
+      }
+      return bestName;
+    }
+
+    // Avgör om två RYB-kategorier är komplement
+    // Röd–Grön, Gul–Lila, Blå–Orange
+    function isComplementaryRyb(catA, catB) {
+      const pair = [catA, catB].sort().join("-");
+      return (
+        pair === "blue-orange" ||
+        pair === "green-red"   ||
+        pair === "purple-yellow"
+      );
+    }
+
+    // Kollar om pixeln är (ungefär) vår bakgrundsfärg
+    function isBackground(r, g, b) {
+      const bg = chroma(backgroundColor).rgb(); // [136,136,136]
+      const threshold = 15;
+      return (
+        Math.abs(r - bg[0]) < threshold &&
+        Math.abs(g - bg[1]) < threshold &&
+        Math.abs(b - bg[2]) < threshold
+      );
+    }
+
+    /************************************************************
+     * 3) Blandningsfunktion i HSL, med RYB-komplement
+     ************************************************************/
+    function mixRybHsl(existingHex, brushHex, ratio) {
+      const hslA = chroma(existingHex).hsl(); // [h, s, l]
+      const hslB = chroma(brushHex).hsl();
+
+      // Linjär interpolation
+      let newHue   = hslA[0] * (1 - ratio) + hslB[0] * ratio;
+      let newSat   = hslA[1] * (1 - ratio) + hslB[1] * ratio;
+      let newLight = hslA[2] * (1 - ratio) + hslB[2] * ratio;
+
+      // Kolla om de två färgerna är RYB-komplement
+      const catA = getRybCategory(hslA[0]);
+      const catB = getRybCategory(hslB[0]);
+      if (isComplementaryRyb(catA, catB)) {
+        // Sänk mättnaden om det är komplement
+        newSat *= 0.5; 
+      }
+
+      // Justera ljusstyrkan beroende på penselfärgens hue
+      const brushHue = hslB[0];
+      const brushCat = getRybCategory(brushHue);
+      if (brushCat === "red" || brushCat === "yellow") {
+        newLight = Math.min(newLight + 0.05, 1); // ljusare
+      } else if (brushCat === "blue") {
+        newLight = Math.max(newLight - 0.05, 0); // mörkare
+      }
+
+      return chroma.hsl(newHue, newSat, newLight).hex();
+    }
+
+    /************************************************************
+     * 4) Hantera musen & rita
+     ************************************************************/
+    // Event: Musknapp ned
+    canvas.addEventListener("mousedown", (e) => {
+      isDrawing = true;
+      draw(e);
+    });
+    // Event: Musdragrörelse
+    canvas.addEventListener("mousemove", (e) => {
+      if(isDrawing) draw(e);
+    });
+    // Event: Musknapp upp eller lämnar canvas
+    canvas.addEventListener("mouseup", () => { isDrawing = false; });
+    canvas.addEventListener("mouseleave", () => { isDrawing = false; });
+
+    // Klick på färgknappar => uppdatera penseln
+    document.querySelectorAll(".color-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        selectedColor = btn.getAttribute("data-color");
+        brushColor = selectedColor;
+      });
+    });
+
+    // Rengör penseln => återställ till vald färg
+    document.getElementById("clean-brush").addEventListener("click", () => {
+      brushColor = selectedColor;
+    });
+
+    // Hjälpfunktion för att hämta musens position
+    function getCanvasPos(e) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      };
+    }
+
+    // Huvudfunktion: Rita på canvas
+    function draw(e) {
+      const pos = getCanvasPos(e);
+
+      // Bestäm uppdateringsområde runt penselns radie
+      const xStart = Math.max(0, Math.floor(pos.x - brushRadius));
+      const yStart = Math.max(0, Math.floor(pos.y - brushRadius));
+      const xEnd = Math.min(canvas.width, Math.ceil(pos.x + brushRadius));
+      const yEnd = Math.min(canvas.height, Math.ceil(pos.y + brushRadius));
+      const width = xEnd - xStart;
+      const height = yEnd - yStart;
+
+      let imageData = ctx.getImageData(xStart, yStart, width, height);
+      let data = imageData.data;
+
+      // Gå igenom alla pixlar i "penselcirkeln"
+      for (let j = 0; j < height; j++) {
+        for (let i = 0; i < width; i++) {
+          const dx = (i + xStart) - pos.x;
+          const dy = (j + yStart) - pos.y;
+          const distance = Math.sqrt(dx*dx + dy*dy);
+
+          if (distance <= brushRadius) {
+            // weight = 0..maxWeight, beroende på avstånd från mitten
+            let weight = maxWeight * (1 - distance / brushRadius);
+
+            const index = (j * width + i) * 4;
+            let r = data[index], g = data[index+1], b = data[index+2];
+            let existingHex = chroma(r, g, b).hex();
+
+            let newHex;
+            // Om pixeln är nära bakgrunden => måla ren penselfärg
+            if (isBackground(r, g, b)) {
+              newHex = brushColor;
+            } else {
+              // Annars blanda färger i HSL med RYB-komplementlogik
+              newHex = mixRybHsl(existingHex, brushColor, weight);
+            }
+
+            let [nr, ng, nb] = chroma(newHex).rgb();
+            data[index]   = nr;
+            data[index+1] = ng;
+            data[index+2] = nb;
+            data[index+3] = 255;
+          }
+        }
+      }
+      ctx.putImageData(imageData, xStart, yStart);
+
+      // Penseln "tar upp" en del av färgen i mitten
+      let centerData = ctx.getImageData(pos.x, pos.y, 1, 1).data;
+      let centerHex = chroma(centerData[0], centerData[1], centerData[2]).hex();
+      brushColor = mixRybHsl(brushColor, centerHex, brushPickup);
+    }
+  </script>
+</body>
+</html>
